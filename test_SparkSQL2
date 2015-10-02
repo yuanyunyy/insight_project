@@ -1,0 +1,57 @@
+mport csv
+import StringIO
+from cqlengine import columns
+from cqlengine.models import Model
+from cqlengine.query import ModelQuerySet
+from cqlengine import connection
+from cqlengine.management import sync_table
+from urllib2 import urlopen, Request
+from pyspark.sql import SQLContext
+import json
+from cassandra.cluster import Cluster
+from cassandra.query import SimpleStatement
+import operator
+from sets import Set
+import sys
+
+class table4_timeline(Model):
+    link_id = columns.Text(primary_key=True)
+    counts = columns.Integer()
+    time = columns.Integer(primary_key=True, partition_key=False)
+    
+CASSANDRA_KEYSPACE = "playground"
+connection.setup(['172.31.6.150'], CASSANDRA_KEYSPACE)
+cluster = Cluster(['54.193.123.92'])
+session = cluster.connect(CASSANDRA_KEYSPACE)
+sync_table(table4_timeline)
+
+createdtime = 0
+cql1 = "SELECT created_utc FROM table3_links WHERE name='t3_8ol1u'"
+stmt1 = session.execute(cql1)
+current_link = []
+for repo in stmt1:
+    current_link.append(repo)
+if len(current_link) > 0:
+    createdtime = int(current_link[0][0])
+    cql2 = "SELECT created_utc FROM full_comments1 WHERE link_id='t3_8ol1u'"
+    stmt = session.execute(cql2)
+    current_timeline = []
+    for repo in stmt:
+        current_timeline.append(repo)
+    if len(current_timeline) > 0:
+        j = 0
+        while j < len(current_timeline):
+            timegap = int(abs(int(current_timeline[j][0]) - createdtime)/3600) # one hour
+            cql4 = "SELECT counts FROM table4_timeline WHERE link_id='t3_8ol1u' and time="+str(timegap)
+            stmt4 = session.execute(cql4)
+            current_timestamp = []
+            for repo in stmt4:
+                current_timestamp.append(repo)
+            if len(current_timestamp) > 0:
+                timeslot = table4_timeline.objects(link_id='t3_8ol1u', time=timegap)
+                timeslot.update(counts=(current_timestamp[0][0]+1))
+            else:
+                table4_timeline.create(link_id='t3_8ol1u', time=timegap, counts=1)
+            j = j+1
+sync_table(table4_timeline)
+
